@@ -1,0 +1,22 @@
+﻿-- 种子数据: 常用英语单词
+INSERT IGNORE INTO word_bank (language, word, phonetic, translation, part_of_speech, example, difficulty) VALUES
+('en', 'abandon', '/əˈbændən/', '放弃;抛弃', 'v.', 'He abandoned his plan to travel.', 2),
+('en', 'brilliant', '/ˈbrɪliənt/', '杰出的;明亮的', 'adj.', 'She had a brilliant idea.', 2),
+('en', 'consequence', '/ˈkɑːnsɪkwens/', '结果;后果', 'n.', 'He suffered the consequences.', 3),
+('en', 'diligent', '/ˈdɪlɪdʒənt/', '勤奋的', 'adj.', 'She is a diligent student.', 2),
+('en', 'elaborate', '/ɪˈlæbərət/', '精心制作的;详细阐述', 'adj./v.', 'He elaborated on his proposal.', 3),
+('en', 'flourish', '/ˈflɜːrɪʃ/', '繁荣;兴旺', 'v.', 'The business began to flourish.', 2),
+('en', 'genuine', '/ˈdʒenjuɪn/', '真正的;真诚的', 'adj.', 'Her smile was genuine.', 2),
+('en', 'hesitate', '/ˈhezɪteɪt/', '犹豫;迟疑', 'v.', "Don't hesitate to ask for help.", 2),
+('en', 'illustrate', '/ˈɪləstreɪt/', '说明;阐明', 'v.', 'The diagram illustrates the process.', 3),
+('en', 'journey', '/ˈdʒɜːrni/', '旅行;旅程', 'n.', 'It was a long journey.', 1),
+('en', 'magnificent', '/mæɡˈnɪfɪsənt/', '壮丽的;宏伟的', 'adj.', 'The view was magnificent.', 3),
+('en', 'negotiate', '/nɪˈɡoʊʃieɪt/', '谈判;协商', 'v.', 'They negotiated a peace agreement.', 3),
+('en', 'obstacle', '/ˈɑːbstəkl/', '障碍;阻碍', 'n.', 'Lack of money was the main obstacle.', 2),
+('en', 'persevere', '/ˌpɜːrsəˈvɪr/', '坚持不懈', 'v.', 'She persevered despite the difficulties.', 3),
+('en', 'reluctant', '/rɪˈlʌktənt/', '不情愿的;勉强的', 'adj.', 'He was reluctant to leave.', 2),
+('en', 'scrutiny', '/ˈskruːtəni/', '仔细审查', 'n.', 'The plan came under close scrutiny.', 4),
+('en', 'tremendous', '/trɪˈmendəs/', '巨大的;惊人的', 'adj.', 'She made a tremendous effort.', 2),
+('en', 'ubiquitous', '/juːˈbɪkwɪtəs/', '无处不在的', 'adj.', 'Smartphones have become ubiquitous.', 4),
+('en', 'versatile', '/ˈvɜːrsətl/', '多才多艺的;多功能的', 'adj.', 'She is a versatile performer.', 3),
+('en', 'wisdom', '/ˈwɪzdəm/', '智慧;才智', 'n.', 'He shared his wisdom with the young.', 1);
