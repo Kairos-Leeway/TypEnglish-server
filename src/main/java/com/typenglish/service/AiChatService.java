@@ -1,6 +1,8 @@
 package com.typenglish.service;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -9,8 +11,13 @@ import reactor.core.publisher.Flux;
 public class AiChatService {
 
     private final ChatClient chatClient;
+    private final AiToolService toolService;
+    private final DatabaseBackedChatMemory chatMemory;
 
-    public AiChatService(OpenAiChatModel chatModel, AiToolService toolService) {
+    public AiChatService(OpenAiChatModel chatModel, AiToolService toolService,
+                         DatabaseBackedChatMemory chatMemory) {
+        this.toolService = toolService;
+        this.chatMemory = chatMemory;
         this.chatClient = ChatClient.builder(chatModel)
                 .defaultSystem("""
                         你是 LinguaLearn 的 AI 学习助教。你可以调用以下工具:
@@ -31,8 +38,15 @@ public class AiChatService {
         return chatClient.prompt().user(userMessage).call().content();
     }
 
-    /** 流式输出 */
-    public Flux<String> stream(String userMessage) {
-        return chatClient.prompt().user(userMessage).stream().content();
+    /** 流式输出 — 带对话记忆管理 */
+    public Flux<String> stream(String userMessage, Long userId, String conversationId) {
+        AiToolService.currentStreamUserId = userId;
+        return chatClient.prompt()
+                .user(userMessage)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
+                .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .stream()
+                .content()
+                .doFinally(s -> AiToolService.currentStreamUserId = null);
     }
 }

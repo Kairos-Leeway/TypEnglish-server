@@ -3,6 +3,7 @@ package com.typenglish.controller;
 import com.typenglish.common.PageResult;
 import com.typenglish.common.Result;
 import com.typenglish.service.ErrorBookService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -12,6 +13,7 @@ import java.util.Map;
 public class ErrorBookController {
 
     private final ErrorBookService errorBookService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ErrorBookController(ErrorBookService errorBookService) {
         this.errorBookService = errorBookService;
@@ -59,7 +61,12 @@ public class ErrorBookController {
     public Result<Map<String, Object>> updateSentenceError(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         int correctSlots = body.get("correctSlots") instanceof Number n ? n.intValue() : 0;
         int totalSlots = body.get("totalSlots") instanceof Number n ? n.intValue() : 0;
-        String slotResults = body.get("slotResults") != null ? body.get("slotResults").toString() : "[]";
+        String slotResults;
+        try {
+            slotResults = objectMapper.writeValueAsString(body.get("slotResults"));
+        } catch (Exception e) {
+            slotResults = "[]";
+        }
         boolean mastered = errorBookService.updateSentenceError(id, correctSlots, totalSlots, slotResults);
         return Result.ok(Map.of("mastered", mastered));
     }

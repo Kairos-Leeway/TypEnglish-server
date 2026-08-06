@@ -98,6 +98,12 @@
             <version>5.8.25</version>
         </dependency>
 
+        <!-- Micrometer Context Propagation: 让 ThreadLocal 在 Reactor 线程间传播 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
