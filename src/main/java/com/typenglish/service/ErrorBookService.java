@@ -160,4 +160,110 @@ public class ErrorBookService {
         if (uid == null) throw new BusinessException(401, "未登录");
         return uid;
     }
+
+    // ──────────── SM-2 间隔重复算法 ────────────
+
+    /**
+     * 根据答题结果自动计算 SM-2 quality，Controller 只需传 errorBookId + correct。
+     *
+     * 自动评分规则：
+     *   errorCount==1 且正确  → quality=5 (首次复习就对了 = 完美)
+     *   errorCount==1 且错误  → quality=2 (遗忘了)
+     *   errorCount>=2 且正确 → quality=4 (吃力但对了)
+     *   errorCount>=2 且错误 → quality=1 (还在错)
+     */
+    public Map<String, Object> autoReview(Long errorBookId, boolean correct) {
+        Long userId = currentUserId();
+        ErrorBook item = errorBookMapper.selectById(errorBookId);
+        if (item == null || !item.getUserId().equals(userId)) {
+            throw new BusinessException(404, "错题不存在");
+        }
+
+        int errCount = item.getErrorCount() != null ? item.getErrorCount() : 1;
+        int quality;
+        if (correct && errCount <= 1) {
+            quality = 5;  // 首次复习就对了
+        } else if (correct) {
+            quality = 4;  // 多次后才对
+        } else if (errCount <= 1) {
+            quality = 2;  // 首次复习就忘了
+        } else {
+            quality = 1;  // 多次还是错
+        }
+
+        int nextInterval = applySm2(item, quality);
+        return Map.of(
+                "nextInterval", nextInterval,
+                "nextReviewAt", item.getNextReviewAt().toString(),
+                "ef", item.getEasinessFactor(),
+                "repetitions", item.getRepetitions(),
+                "quality", quality
+        );
+    }
+
+    public int applySm2(ErrorBook item, int quality) {
+        double ef = item.getEasinessFactor() != null ? item.getEasinessFactor() : 2.5;
+        int interval = item.getReviewInterval() != null ? item.getReviewInterval() : 0;
+        int reps = item.getRepetitions() != null ? item.getRepetitions() : 0;
+
+        if (quality >= 3) {
+            // 答对了：间隔递增
+            if (reps == 0) {
+                interval = 1;
+            } else if (reps == 1) {
+                interval = 6;
+            } else {
+                interval = (int) Math.round(interval * ef);
+            }
+            reps++;
+        } else {
+            // 答错了：重置
+            interval = 1;
+            reps = 0;
+        }
+
+        // 更新 EF
+        ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+        if (ef < 1.3) ef = 1.3;
+
+        item.setEasinessFactor(ef);
+        item.setReviewInterval(interval);
+        item.setRepetitions(reps);
+        item.setNextReviewAt(java.time.LocalDateTime.now().plusDays(interval));
+        item.setLastErrorAt(java.time.LocalDateTime.now());
+        if (quality < 3) {
+            item.setErrorCount((item.getErrorCount() != null ? item.getErrorCount() : 0) + 1);
+        }
+
+        errorBookMapper.updateById(item);
+        return interval;
+    }
+
+    /**
+     * 获取待复习的错题（nextReviewAt <= now，且未掌握），按复习时间升序。
+     */
+    public List<Map<String, Object>> getDueReviews(Long userId) {
+        var wrapper = new LambdaQueryWrapper<ErrorBook>()
+                .eq(ErrorBook::getUserId, userId)
+                .eq(ErrorBook::getMastered, false)
+                .le(ErrorBook::getNextReviewAt, java.time.LocalDateTime.now())
+                .orderByAsc(ErrorBook::getNextReviewAt);
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ErrorBook eb : errorBookMapper.selectList(wrapper)) {
+            WordBank wb = wordBankMapper.selectById(eb.getWordId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("errorId", eb.getId());
+            m.put("errorCount", eb.getErrorCount());
+            m.put("ef", eb.getEasinessFactor());
+            m.put("interval", eb.getReviewInterval());
+            m.put("repetitions", eb.getRepetitions());
+            if (wb != null) {
+                m.put("word", Map.of("id", wb.getId(), "word", wb.getWord(),
+                        "translation", wb.getTranslation(), "phonetic", wb.getPhonetic()));
+            }
+            items.add(m);
+        }
+        return items;
+    }
 }

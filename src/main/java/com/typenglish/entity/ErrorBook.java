@@ -15,4 +15,9 @@ public class ErrorBook {
     private LocalDateTime lastErrorAt;
     private LocalDateTime nextReviewAt;
     private Boolean mastered;
+
+    // SM-2 算法字段
+    private Double easinessFactor;  // 难易度因子，默认 2.5，最低 1.3
+    private Integer reviewInterval; // 当前复习间隔（天）
+    private Integer repetitions;    // 连续答对次数
 }
