@@ -89,7 +89,7 @@ public class ErrorBookController {
     @GetMapping("/due")
     public Result<java.util.List<Map<String, Object>>> getDueReviews() {
         Long userId = com.typenglish.security.JwtInterceptor.CURRENT_USER.get();
-        if (userId == null) return Result.error(401, "未登录");
+        if (userId == null) return Result.fail(401, "未登录");
         return Result.ok(errorBookService.getDueReviews(userId));
     }
 }
