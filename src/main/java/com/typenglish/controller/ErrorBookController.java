@@ -2,6 +2,7 @@ package com.typenglish.controller;
 
 import com.typenglish.common.PageResult;
 import com.typenglish.common.Result;
+import com.typenglish.security.JwtInterceptor;
 import com.typenglish.service.ErrorBookService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.bind.annotation.*;
@@ -88,7 +89,7 @@ public class ErrorBookController {
     /** 获取到期待复习的错题 */
     @GetMapping("/due")
     public Result<java.util.List<Map<String, Object>>> getDueReviews() {
-        Long userId = com.typenglish.security.JwtInterceptor.CURRENT_USER.get();
+        Long userId = JwtInterceptor.CURRENT_USER.get();
         if (userId == null) return Result.fail(401, "未登录");
         return Result.ok(errorBookService.getDueReviews(userId));
     }
