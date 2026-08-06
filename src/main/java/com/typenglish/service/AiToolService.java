@@ -265,8 +265,8 @@ public class AiToolService {
 
     // ──────────── SSE 分批生成 ────────────
 
-    private static final int BATCH_SIZE = 5;
-    private static final int MAX_TOTAL = 100;
+    private static final int BATCH_SIZE = 10;
+    private static final int MAX_TOTAL = 200;
 
     /**
      * 通过 SseEmitter 分批生成句子并推送进度。
