@@ -13,6 +13,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -173,13 +174,18 @@ public class AiToolService {
             for (Map<String, Object> w : words) {
                 String word = (String) w.get("word");
                 if (word == null) continue;
-                if (wordBankMapper.selectOne(new LambdaQueryWrapper<WordBank>().eq(WordBank::getLanguage, lang).eq(WordBank::getWord, word)) != null) { skipped++; continue; }
                 WordBank wb = new WordBank();
                 wb.setLanguage(lang); wb.setWord(word); wb.setTranslation((String) w.getOrDefault("translation", ""));
                 wb.setPhonetic((String) w.get("phonetic")); wb.setPartOfSpeech((String) w.get("partOfSpeech"));
                 wb.setExample((String) w.get("example")); wb.setCategory("AI生成");
                 Object d = w.get("difficulty"); wb.setDifficulty(d instanceof Number ? ((Number) d).intValue() : diff);
-                wordBankMapper.insert(wb); generated.add(word); created++;
+                try {
+                    wordBankMapper.insert(wb);
+                    generated.add(word);
+                    created++;
+                } catch (DuplicateKeyException e) {
+                    skipped++;
+                }
             }
         } catch (Exception e) { log.error("Parse error", e); return Map.of("success", false, "error", "解析失败"); }
         return Map.of("success", true, "created", created, "skipped", skipped, "topic", ts, "words", generated);
