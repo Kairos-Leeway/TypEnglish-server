@@ -1,6 +1,7 @@
 package com.typenglish.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.typenglish.common.PageResult;
 import com.typenglish.entity.*;
 import com.typenglish.mapper.*;
 import com.typenglish.security.JwtInterceptor;
@@ -81,6 +82,10 @@ public class PracticeService {
 
         Long userId = JwtInterceptor.CURRENT_USER.get();
 
+        // spelling 模式才创建 ErrorBook 和 PracticeRecord
+        // 句子翻译/完形填空在 sentence_error 表单独记录，不创建按词的记录
+        if ("translation".equals(mode) || "cloze".equals(mode)) return;
+
         PracticeRecord record = new PracticeRecord();
         record.setUserId(userId);
         record.setWordId(wordId);
@@ -150,11 +155,54 @@ public class PracticeService {
         Map<String, Object> stats = practiceRecordMapper.stats(userId);
         List<Map<String, Object>> byMode = practiceRecordMapper.countByMode(userId);
 
-        long total = ((Number) stats.getOrDefault("total", 0)).longValue();
-        long correct = ((Number) stats.getOrDefault("correct", 0)).longValue();
+        long wordTotal = ((Number) stats.getOrDefault("total", 0)).longValue();
+        long wordCorrect = ((Number) stats.getOrDefault("correct", 0)).longValue();
+
+        // 合并 sentence_error 统计
+        var sentStats = sentenceErrorMapper.stats(userId);
+        long sentTotal = ((Number) sentStats.getOrDefault("total", 0)).longValue();
+        long sentCorrect = ((Number) sentStats.getOrDefault("correct", 0)).longValue();
+
+        long total = wordTotal + sentTotal;
+        long correct = wordCorrect + sentCorrect;
         int accuracy = total > 0 ? (int) Math.round((double) correct / total * 100) : 0;
 
         return Map.of("total", total, "correct", correct, "accuracy", accuracy, "byMode", byMode);
+    }
+
+    /** 分页查询练习记录列表 — 合并 practice_record + sentence_error */
+    public PageResult<Map<String, Object>> listRecords(int page, int size) {
+        Long userId = JwtInterceptor.CURRENT_USER.get();
+
+        // 1) 单词记录
+        long wordTotal = practiceRecordMapper.countByUser(userId);
+        int wordOffset = (page - 1) * size;
+        List<Map<String, Object>> wordRecords = practiceRecordMapper.pageWithWord(userId, wordOffset, size);
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (var r : wordRecords) {
+            Map<String, Object> m = new LinkedHashMap<>(r);
+            m.put("type", "word");
+            items.add(m);
+        }
+
+        // 2) 句子记录
+        long sentTotal = sentenceErrorMapper.countByUser(userId);
+        int sentOffset = (page - 1) * size;
+        List<Map<String, Object>> sentRecords = sentenceErrorMapper.pageList(userId, sentOffset, size);
+        for (var r : sentRecords) {
+            Map<String, Object> m = new LinkedHashMap<>(r);
+            m.put("type", "sentence");
+            items.add(m);
+        }
+
+        long total = wordTotal + sentTotal;
+        return new PageResult<>(items, total, page, size);
+    }
+
+    /** 每日统计（最近 N 天） */
+    public List<Map<String, Object>> dailyStats(int days) {
+        Long userId = JwtInterceptor.CURRENT_USER.get();
+        return practiceRecordMapper.dailyStats(userId, Math.min(days, 90));
     }
 
     public record SessionResult(List<WordBank> words, int fromErrorBook, int fromBank) {}

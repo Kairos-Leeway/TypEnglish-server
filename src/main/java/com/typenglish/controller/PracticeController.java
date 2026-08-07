@@ -1,5 +1,6 @@
 package com.typenglish.controller;
 
+import com.typenglish.common.PageResult;
 import com.typenglish.common.Result;
 import com.typenglish.dto.PracticeDTO;
 import com.typenglish.service.PracticeService;
@@ -66,5 +67,18 @@ public class PracticeController {
     @GetMapping("/stats")
     public Result<Map<String, Object>> stats() {
         return Result.ok(practiceService.getStats());
+    }
+
+    @GetMapping("/records")
+    public Result<PageResult<Map<String, Object>>> records(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(practiceService.listRecords(page, size));
+    }
+
+    @GetMapping("/daily-stats")
+    public Result<List<Map<String, Object>>> dailyStats(
+            @RequestParam(defaultValue = "30") int days) {
+        return Result.ok(practiceService.dailyStats(days));
     }
 }

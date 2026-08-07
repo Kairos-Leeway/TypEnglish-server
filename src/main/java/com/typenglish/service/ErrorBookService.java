@@ -50,9 +50,13 @@ public class ErrorBookService {
             m.put("lastErrorAt", eb.getLastErrorAt());
             m.put("nextReviewAt", eb.getNextReviewAt());
             if (wb != null) {
-                m.put("word", Map.of("id", wb.getId(), "word", wb.getWord(),
-                        "translation", wb.getTranslation(), "phonetic", wb.getPhonetic(),
-                        "language", wb.getLanguage()));
+                Map<String, Object> wordMap = new LinkedHashMap<>();
+                wordMap.put("id", wb.getId());
+                wordMap.put("word", wb.getWord());
+                wordMap.put("translation", wb.getTranslation());
+                wordMap.put("phonetic", wb.getPhonetic());
+                wordMap.put("language", wb.getLanguage());
+                m.put("word", wordMap);
             }
             items.add(m);
         }
@@ -259,8 +263,12 @@ public class ErrorBookService {
             m.put("interval", eb.getReviewInterval());
             m.put("repetitions", eb.getRepetitions());
             if (wb != null) {
-                m.put("word", Map.of("id", wb.getId(), "word", wb.getWord(),
-                        "translation", wb.getTranslation(), "phonetic", wb.getPhonetic()));
+                Map<String, Object> wordMap = new LinkedHashMap<>();
+                wordMap.put("id", wb.getId());
+                wordMap.put("word", wb.getWord());
+                wordMap.put("translation", wb.getTranslation());
+                wordMap.put("phonetic", wb.getPhonetic());
+                m.put("word", wordMap);
             }
             items.add(m);
         }
