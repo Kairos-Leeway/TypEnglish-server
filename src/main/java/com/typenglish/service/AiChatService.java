@@ -7,13 +7,14 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.http.MediaType;
 
 import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Service
 @Slf4j
@@ -23,13 +24,16 @@ public class AiChatService {
     private final AiToolService toolService;
     private final DatabaseBackedChatMemory chatMemory;
     private final ConversationService conversationService;
+    private final Executor aiGenerateExecutor;
 
     public AiChatService(OpenAiChatModel chatModel, AiToolService toolService,
                          DatabaseBackedChatMemory chatMemory,
-                         ConversationService conversationService) {
+                         ConversationService conversationService,
+                         @Qualifier("aiGenerateExecutor") Executor aiGenerateExecutor) {
         this.toolService = toolService;
         this.chatMemory = chatMemory;
         this.conversationService = conversationService;
+        this.aiGenerateExecutor = aiGenerateExecutor;
         this.chatClient = ChatClient.builder(chatModel)
                 .defaultSystem("""
                         你是 LinguaLearn 的 AI 学习助教。你可以调用以下工具:
@@ -51,21 +55,9 @@ public class AiChatService {
         return chatClient.prompt().user(userMessage).call().content();
     }
 
-    /** 流式输出 — 带对话记忆管理 */
-    public Flux<String> stream(String userMessage, Long userId, String conversationId) {
-        AiToolService.currentStreamUserId = userId;
-        return chatClient.prompt()
-                .user(userMessage)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
-                .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
-                .stream()
-                .content()
-                .doFinally(s -> AiToolService.currentStreamUserId = null);
-    }
-
     /**
      * 流式 SSE 对话（会话持久化 + SSE 推送）。
-     * Controller 只需传参即可，所有编排逻辑在此完成。
+     * 使用独立线程池执行 AI 调用，避免阻塞 NIO 线程。
      */
     public SseEmitter streamChat(String message, Long userId, String conversationIdStr) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -84,35 +76,54 @@ public class AiChatService {
         conversationService.saveMessage(conversationId, userId, "user", message);
 
         final Long finalConvId = conversationId;
-        StringBuilder fullReply = new StringBuilder();
 
-        stream(message, userId, String.valueOf(conversationId))
-                .doOnNext(token -> {
-                    fullReply.append(token);
-                    try {
-                        emitter.send(SseEmitter.event().name("message").data(token, MediaType.TEXT_PLAIN));
-                    } catch (IOException e) {
-                        throw new RuntimeException("SSE send error", e);
-                    }
-                })
-                .doOnComplete(() -> {
+        aiGenerateExecutor.execute(() -> {
+            StringBuilder fullReply = new StringBuilder();
+            AtomicBoolean interrupted = new AtomicBoolean(false);
+
+            try {
+                AiToolService.currentStreamUserId = userId;
+                chatClient.prompt()
+                        .user(message)
+                        .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, String.valueOf(finalConvId)))
+                        .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                        .stream()
+                        .content()
+                        .toStream()
+                        .forEach(token -> {
+                            fullReply.append(token);
+                            try {
+                                emitter.send(SseEmitter.event().name("message").data(token, MediaType.TEXT_PLAIN));
+                            } catch (IOException e) {
+                                interrupted.set(true);
+                                throw new RuntimeException("SSE send interrupt", e);
+                            }
+                        });
+            } catch (Exception e) {
+                if (interrupted.get()) {
+                    log.info("Conversation {} stream interrupted, {} chars generated", finalConvId, fullReply.length());
+                } else {
+                    log.error("SSE stream error: {}", e.getMessage(), e);
+                }
+            } finally {
+                // 保存完整回复
+                if (fullReply.length() > 0) {
                     conversationService.saveMessage(finalConvId, userId, "assistant", fullReply.toString());
-                    try {
-                        emitter.send(SseEmitter.event().name("done").data(
-                                "{\"status\":\"completed\",\"conversationId\":" + finalConvId + "}"));
-                        emitter.complete();
-                    } catch (IOException e) {
-                        emitter.completeWithError(e);
-                    }
-                })
-                .doOnError(err -> {
-                    if (fullReply.length() > 0) {
-                        conversationService.saveMessage(finalConvId, userId, "assistant", fullReply.toString());
-                    }
-                    log.error("Stream error: {}", err.getMessage());
-                    emitter.completeWithError(err);
-                })
-                .subscribe();
+                }
+
+                Map<String, Object> meta = new LinkedHashMap<>();
+                meta.put("conversationId", finalConvId);
+                meta.put("status", "completed");
+                meta.put("interrupted", interrupted.get());
+                meta.put("partialLength", fullReply.length());
+
+                try {
+                    emitter.send(SseEmitter.event().name("done").data(meta, MediaType.APPLICATION_JSON));
+                } catch (IOException ignored) {}
+                emitter.complete();
+                AiToolService.currentStreamUserId = null;
+            }
+        });
 
         return emitter;
     }
