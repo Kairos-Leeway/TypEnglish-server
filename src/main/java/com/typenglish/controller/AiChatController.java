@@ -7,20 +7,16 @@ import com.typenglish.service.AiChatService;
 import com.typenglish.service.AiToolService;
 import com.typenglish.service.ConversationService;
 import com.typenglish.security.JwtInterceptor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/ai")
 public class AiChatController {
 
-    private static final Logger log = LoggerFactory.getLogger(AiChatController.class);
     private final AiChatService aiChatService;
     private final AiToolService aiToolService;
     private final ConversationService conversationService;
@@ -90,57 +86,7 @@ public class AiChatController {
         }
 
         Long userId = currentUserId();
-        SseEmitter emitter = new SseEmitter(300_000L);
-
-        // 创建或复用对话
-        Long conversationId;
-        String convIdStr = body.get("conversationId");
-        if (convIdStr != null && !convIdStr.isBlank()) {
-            conversationId = Long.parseLong(convIdStr);
-        } else {
-            String title = message.length() > 30 ? message.substring(0, 30) : message;
-            AiConversation conv = conversationService.createConversation(userId, title);
-            conversationId = conv.getId();
-        }
-
-        // 保存用户消息
-        conversationService.saveMessage(conversationId, userId, "user", message);
-
-        // 用 StringBuilder 收集完整回复，流结束后保存
-        final Long finalConvId = conversationId;
-        StringBuilder fullReply = new StringBuilder();
-
-        aiChatService.stream(message, userId, String.valueOf(conversationId))
-                .doOnNext(token -> {
-                    fullReply.append(token);
-                    try {
-                        emitter.send(SseEmitter.event().name("message").data(token, MediaType.TEXT_PLAIN));
-                    } catch (IOException e) {
-                        throw new RuntimeException("SSE send error", e);
-                    }
-                })
-                .doOnComplete(() -> {
-                    // 保存 AI 回复
-                    conversationService.saveMessage(finalConvId, userId, "assistant", fullReply.toString());
-                    try {
-                        emitter.send(SseEmitter.event().name("done").data(
-                                "{\"status\":\"completed\",\"conversationId\":" + finalConvId + "}"));
-                        emitter.complete();
-                    } catch (IOException e) {
-                        emitter.completeWithError(e);
-                    }
-                })
-                .doOnError(err -> {
-                    // 即使出错也尝试保存部分回复
-                    if (fullReply.length() > 0) {
-                        conversationService.saveMessage(finalConvId, userId, "assistant", fullReply.toString());
-                    }
-                    log.error("Stream error: {}", err.getMessage());
-                    emitter.completeWithError(err);
-                })
-                .subscribe();
-
-        return emitter;
+        return aiChatService.streamChat(message, userId, body.get("conversationId"));
     }
 
     // ──────────── AI 出题 ────────────

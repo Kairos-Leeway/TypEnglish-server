@@ -44,6 +44,12 @@ public class ErrorBookService {
         List<Map<String, Object>> items = new ArrayList<>();
         for (ErrorBook eb : result.getRecords()) {
             WordBank wb = wordBankMapper.selectById(eb.getWordId());
+            if (wb == null) {
+                // 词已删除，标记该错题记录为已掌握，不再返回
+                eb.setMastered(true);
+                errorBookMapper.updateById(eb);
+                continue;
+            }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", eb.getId());
             m.put("errorCount", eb.getErrorCount());

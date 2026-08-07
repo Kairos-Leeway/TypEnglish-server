@@ -37,18 +37,21 @@ public class AiToolService {
     private final PracticeRecordMapper practiceRecordMapper;
     private final WordBankMapper wordBankMapper;
     private final SentenceBankMapper sentenceBankMapper;
+    private final SentenceErrorMapper sentenceErrorMapper;
     private final OpenAiChatModel chatModel;
     private final Executor aiGenerateExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiToolService(ErrorBookMapper errorBookMapper, PracticeRecordMapper practiceRecordMapper,
                          WordBankMapper wordBankMapper, SentenceBankMapper sentenceBankMapper,
+                         SentenceErrorMapper sentenceErrorMapper,
                          OpenAiChatModel chatModel,
                          @Qualifier("aiGenerateExecutor") Executor aiGenerateExecutor) {
         this.errorBookMapper = errorBookMapper;
         this.practiceRecordMapper = practiceRecordMapper;
         this.wordBankMapper = wordBankMapper;
         this.sentenceBankMapper = sentenceBankMapper;
+        this.sentenceErrorMapper = sentenceErrorMapper;
         this.chatModel = chatModel;
         this.aiGenerateExecutor = aiGenerateExecutor;
     }
@@ -77,6 +80,24 @@ public class AiToolService {
             m.put("word", w != null ? w.getWord() : "未知");
             m.put("translation", w != null ? w.getTranslation() : "");
             m.put("errorCount", e.getErrorCount());
+            return m;
+        }).collect(Collectors.toList());
+    }
+
+    @Tool(description = "查询句子错题本（完形填空和翻译的错句）")
+    public List<Map<String, Object>> getMySentenceErrors(@ToolParam(description = "语言代码") String language) {
+        Long uid = currentUserId();
+        List<SentenceError> errors = sentenceErrorMapper.selectList(
+                new LambdaQueryWrapper<SentenceError>().eq(SentenceError::getUserId, uid)
+                        .eq(SentenceError::getMastered, false).orderByDesc(SentenceError::getCreatedAt));
+        return errors.stream().map(se -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("errorId", se.getId());
+            m.put("chinese", se.getChinese());
+            m.put("english", se.getEnglish());
+            m.put("mode", se.getMode());
+            m.put("correctSlots", se.getCorrectSlots());
+            m.put("totalSlots", se.getTotalSlots());
             return m;
         }).collect(Collectors.toList());
     }

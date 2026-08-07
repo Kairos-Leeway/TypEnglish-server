@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.typenglish.entity.SentenceBank;
 import com.typenglish.entity.WordBank;
 import com.typenglish.mapper.SentenceBankMapper;
+import com.typenglish.mapper.SentenceErrorMapper;
 import com.typenglish.mapper.WordBankMapper;
 import org.springframework.stereotype.Service;
 
@@ -14,10 +15,13 @@ public class SentenceService {
 
     private final SentenceBankMapper sentenceBankMapper;
     private final WordBankMapper wordBankMapper;
+    private final SentenceErrorMapper sentenceErrorMapper;
 
-    public SentenceService(SentenceBankMapper sentenceBankMapper, WordBankMapper wordBankMapper) {
+    public SentenceService(SentenceBankMapper sentenceBankMapper, WordBankMapper wordBankMapper,
+                           SentenceErrorMapper sentenceErrorMapper) {
         this.sentenceBankMapper = sentenceBankMapper;
         this.wordBankMapper = wordBankMapper;
+        this.sentenceErrorMapper = sentenceErrorMapper;
     }
 
     /** 随机抽取句子，tokenize 为单词+标点列表 */
@@ -56,8 +60,11 @@ public class SentenceService {
         return result;
     }
 
+    /** 删除句子，同时清理关联的错题记录 */
     public void deleteById(Long id) {
         sentenceBankMapper.deleteById(id);
+        sentenceErrorMapper.delete(new LambdaQueryWrapper<com.typenglish.entity.SentenceError>()
+                .eq(com.typenglish.entity.SentenceError::getSentenceId, id));
     }
 
     private Map<String, Object> buildToken(String word, String language, int index) {

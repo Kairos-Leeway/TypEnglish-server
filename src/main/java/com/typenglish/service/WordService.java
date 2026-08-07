@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.typenglish.common.PageResult;
 import com.typenglish.entity.WordBank;
+import com.typenglish.mapper.ErrorBookMapper;
 import com.typenglish.mapper.WordBankMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,13 +27,16 @@ public class WordService {
 
     private static final Logger log = LoggerFactory.getLogger(WordService.class);
     private final WordBankMapper wordBankMapper;
+    private final ErrorBookMapper errorBookMapper;
     private final RedisTemplate<String, Object> redisTemplate;
     private final OpenAiChatModel chatModel;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public WordService(WordBankMapper wordBankMapper, RedisTemplate<String, Object> redisTemplate,
+    public WordService(WordBankMapper wordBankMapper, ErrorBookMapper errorBookMapper,
+                       RedisTemplate<String, Object> redisTemplate,
                        OpenAiChatModel chatModel) {
         this.wordBankMapper = wordBankMapper;
+        this.errorBookMapper = errorBookMapper;
         this.redisTemplate = redisTemplate;
         this.chatModel = chatModel;
     }
@@ -155,9 +159,11 @@ public class WordService {
         return new ImportResult(created, skipped);
     }
 
-    /** 删除单个单词 */
+    /** 删除单个单词，同时清理关联的错题记录 */
     public void deleteById(Long id) {
         wordBankMapper.deleteById(id);
+        errorBookMapper.delete(new LambdaQueryWrapper<com.typenglish.entity.ErrorBook>()
+                .eq(com.typenglish.entity.ErrorBook::getWordId, id));
     }
 
     /** 批量删除整个分类 */
