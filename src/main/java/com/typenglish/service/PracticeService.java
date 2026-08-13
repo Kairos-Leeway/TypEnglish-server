@@ -20,20 +20,24 @@ public class PracticeService {
     private final ErrorBookMapper errorBookMapper;
     private final PracticeRecordMapper practiceRecordMapper;
     private final SentenceErrorMapper sentenceErrorMapper;
+    private final SpacedRepetitionScheduler repetitionScheduler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PracticeService(WordBankMapper wordBankMapper,
                            ErrorBookMapper errorBookMapper,
                            PracticeRecordMapper practiceRecordMapper,
-                           SentenceErrorMapper sentenceErrorMapper) {
+                           SentenceErrorMapper sentenceErrorMapper,
+                           SpacedRepetitionScheduler repetitionScheduler) {
         this.wordBankMapper = wordBankMapper;
         this.errorBookMapper = errorBookMapper;
         this.practiceRecordMapper = practiceRecordMapper;
         this.sentenceErrorMapper = sentenceErrorMapper;
+        this.repetitionScheduler = repetitionScheduler;
     }
 
     public SessionResult createSession(String language, int count, String category) {
         Long userId = JwtInterceptor.CURRENT_USER.get();
+        language = LanguageCodeNormalizer.normalize(language);
 
         List<ErrorBook> dueErrors = errorBookMapper.findDueReviews(userId, count / 2);
         List<Long> errorWordIds = dueErrors.stream().map(ErrorBook::getWordId).toList();
@@ -61,7 +65,8 @@ public class PracticeService {
     }
 
     @Transactional
-    public void submitAnswer(Long wordId, String mode, Boolean correct, String answer, String wordText, String language) {
+    public void submitAnswer(Long wordId, String mode, Boolean correct, String answer, String wordText,
+                             String language, int attempts, boolean hintUsed, boolean skipped) {
         if (wordId == null && wordText != null && !wordText.isBlank() && language != null) {
             WordBank wb = wordBankMapper.selectOne(new LambdaQueryWrapper<WordBank>()
                     .eq(WordBank::getWord, wordText).eq(WordBank::getLanguage, language));
@@ -101,27 +106,24 @@ public class PracticeService {
 
         if (Boolean.FALSE.equals(correct)) {
             LocalDateTime now = LocalDateTime.now();
-            LocalDateTime nextReview = now.plusDays(1);
             if (existing != null) {
-                existing.setErrorCount(existing.getErrorCount() != null ? existing.getErrorCount() + 1 : 1);
-                existing.setLastErrorAt(now);
-                existing.setNextReviewAt(nextReview);
-                existing.setMastered(false);
+                int quality = repetitionScheduler.quality(false, attempts, hintUsed, skipped);
+                repetitionScheduler.apply(existing, quality, now);
                 errorBookMapper.updateById(existing);
             } else {
                 ErrorBook eb = new ErrorBook();
                 eb.setUserId(userId);
                 eb.setWordId(wordId);
-                eb.setErrorCount(1);
-                eb.setLastErrorAt(now);
-                eb.setNextReviewAt(nextReview);
+                eb.setErrorCount(0);
                 eb.setMastered(false);
+                int quality = repetitionScheduler.quality(false, attempts, hintUsed, skipped);
+                repetitionScheduler.apply(eb, quality, now);
                 errorBookMapper.insert(eb);
             }
         } else {
             if (existing != null) {
-                existing.setMastered(true);
-                existing.setNextReviewAt(LocalDateTime.now().plusDays(3));
+                int quality = repetitionScheduler.quality(true, attempts, hintUsed, skipped);
+                repetitionScheduler.apply(existing, quality, LocalDateTime.now());
                 errorBookMapper.updateById(existing);
             }
         }

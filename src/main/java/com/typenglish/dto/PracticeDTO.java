@@ -21,6 +21,9 @@ public class PracticeDTO {
         private String mode;
         private Boolean correct;
         private String answer;
+        private int attempts = 1;
+        private boolean hintUsed;
+        private boolean skipped;
     }
 
     @Data

@@ -24,15 +24,18 @@ public class AiChatService {
     private final AiToolService toolService;
     private final DatabaseBackedChatMemory chatMemory;
     private final ConversationService conversationService;
+    private final LearningCoachService learningCoachService;
     private final Executor aiGenerateExecutor;
 
     public AiChatService(OpenAiChatModel chatModel, AiToolService toolService,
                          DatabaseBackedChatMemory chatMemory,
                          ConversationService conversationService,
+                         LearningCoachService learningCoachService,
                          @Qualifier("aiGenerateExecutor") Executor aiGenerateExecutor) {
         this.toolService = toolService;
         this.chatMemory = chatMemory;
         this.conversationService = conversationService;
+        this.learningCoachService = learningCoachService;
         this.aiGenerateExecutor = aiGenerateExecutor;
         this.chatClient = ChatClient.builder(chatModel)
                 .defaultSystem("""
@@ -45,14 +48,20 @@ public class AiChatService {
                         - getMyRecentPractices: 查看近期练习
                         - generateWords: 生成单词并写入词库
                         - generateSentences: 生成句子并写入句库
+                        - recommendNextSession: 推荐下一轮个性化练习
+                        - createPracticeSession: 创建可一键开始的练习
+                        - getLearningTrend: 查看学习趋势
 
+                        当用户询问下一步学什么时，先调用 recommendNextSession；用户明确想开始练习时，
+                        再调用 createPracticeSession，让界面显示可点击的开始练习卡片。
                         始终用中文回复,保持友善鼓励的语气。支持 Markdown 格式。""")
-                .defaultTools(toolService)
                 .build();
     }
 
-    public String chat(String userMessage) {
-        return chatClient.prompt().user(userMessage).call().content();
+    public String chat(Long userId, String userMessage) {
+        return chatClient.prompt().user(userMessage)
+                .tools(new AiUserTools(userId, toolService, learningCoachService, null))
+                .call().content();
     }
 
     /**
@@ -66,6 +75,7 @@ public class AiChatService {
         Long conversationId;
         if (conversationIdStr != null && !conversationIdStr.isBlank()) {
             conversationId = Long.parseLong(conversationIdStr);
+            conversationService.requireOwnedConversation(conversationId, userId);
         } else {
             String title = message.length() > 30 ? message.substring(0, 30) : message;
             AiConversation conv = conversationService.createConversation(userId, title);
@@ -80,12 +90,19 @@ public class AiChatService {
         aiGenerateExecutor.execute(() -> {
             StringBuilder fullReply = new StringBuilder();
             AtomicBoolean interrupted = new AtomicBoolean(false);
+            Map<String, AiToolExecutionEvent> toolEvents = Collections.synchronizedMap(new LinkedHashMap<>());
 
             try {
-                AiToolService.currentStreamUserId = userId;
+                AiUserTools requestTools = new AiUserTools(userId, toolService, learningCoachService,
+                        event -> {
+                            toolEvents.put(event.id(), event);
+                            sendToolEvent(emitter, event, interrupted);
+                        });
                 chatClient.prompt()
                         .user(message)
-                        .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, String.valueOf(finalConvId)))
+                        .tools(requestTools)
+                        .advisors(a -> a.param(ChatMemory.CONVERSATION_ID,
+                                DatabaseBackedChatMemory.key(userId, finalConvId)))
                         .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                         .stream()
                         .content()
@@ -108,7 +125,13 @@ public class AiChatService {
             } finally {
                 // 保存完整回复
                 if (fullReply.length() > 0) {
-                    conversationService.saveMessage(finalConvId, userId, "assistant", fullReply.toString());
+                    List<Map<String, Object>> persistedTools;
+                    synchronized (toolEvents) {
+                        persistedTools = toolEvents.values().stream()
+                                .map(this::toolEventMap).toList();
+                    }
+                    conversationService.saveMessage(finalConvId, userId, "assistant",
+                            fullReply.toString(), persistedTools);
                 }
 
                 Map<String, Object> meta = new LinkedHashMap<>();
@@ -121,10 +144,29 @@ public class AiChatService {
                     emitter.send(SseEmitter.event().name("done").data(meta, MediaType.APPLICATION_JSON));
                 } catch (IOException ignored) {}
                 emitter.complete();
-                AiToolService.currentStreamUserId = null;
             }
         });
 
         return emitter;
+    }
+
+    private void sendToolEvent(SseEmitter emitter, AiToolExecutionEvent event, AtomicBoolean interrupted) {
+        try {
+            emitter.send(SseEmitter.event().name("tool").data(event, MediaType.APPLICATION_JSON));
+        } catch (IOException e) {
+            interrupted.set(true);
+            throw new RuntimeException("SSE tool event interrupted", e);
+        }
+    }
+
+    private Map<String, Object> toolEventMap(AiToolExecutionEvent event) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", event.id());
+        map.put("phase", event.phase());
+        map.put("name", event.name());
+        map.put("title", event.title());
+        if (event.summary() != null) map.put("summary", event.summary());
+        if (event.action() != null) map.put("action", event.action());
+        return map;
     }
 }

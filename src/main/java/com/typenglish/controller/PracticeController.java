@@ -33,7 +33,8 @@ public class PracticeController {
     @PostMapping("/submit")
     public Result<Void> submit(@RequestBody PracticeDTO.SubmitReq req) {
         practiceService.submitAnswer(req.getWordId(), req.getMode(), req.getCorrect(),
-                req.getAnswer(), req.getWordText(), req.getLanguage());
+                req.getAnswer(), req.getWordText(), req.getLanguage(),
+                req.getAttempts(), req.isHintUsed(), req.isSkipped());
         return Result.ok();
     }
 
@@ -51,7 +52,11 @@ public class PracticeController {
             String wordText = (String) item.get("wordText");
             Long wordId = wordIdObj instanceof Number n ? n.longValue() : null;
             try {
-                practiceService.submitAnswer(wordId, mode, correct, answer, wordText, language);
+                int attempts = item.get("attempts") instanceof Number n ? n.intValue() : 1;
+                boolean hintUsed = Boolean.TRUE.equals(item.get("hintUsed"));
+                boolean wasSkipped = Boolean.TRUE.equals(item.get("skipped"));
+                practiceService.submitAnswer(wordId, mode, correct, answer, wordText, language,
+                        attempts, hintUsed, wasSkipped);
                 recorded++;
             } catch (Exception e) { skipped++; }
         }

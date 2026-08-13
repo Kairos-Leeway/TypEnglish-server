@@ -21,12 +21,15 @@ public class ErrorBookService {
     private final ErrorBookMapper errorBookMapper;
     private final WordBankMapper wordBankMapper;
     private final SentenceErrorMapper sentenceErrorMapper;
+    private final SpacedRepetitionScheduler repetitionScheduler;
 
     public ErrorBookService(ErrorBookMapper errorBookMapper, WordBankMapper wordBankMapper,
-                            SentenceErrorMapper sentenceErrorMapper) {
+                            SentenceErrorMapper sentenceErrorMapper,
+                            SpacedRepetitionScheduler repetitionScheduler) {
         this.errorBookMapper = errorBookMapper;
         this.wordBankMapper = wordBankMapper;
         this.sentenceErrorMapper = sentenceErrorMapper;
+        this.repetitionScheduler = repetitionScheduler;
     }
 
     /** 单词错题分页 */
@@ -212,41 +215,9 @@ public class ErrorBookService {
     }
 
     public int applySm2(ErrorBook item, int quality) {
-        double ef = item.getEasinessFactor() != null ? item.getEasinessFactor() : 2.5;
-        int interval = item.getReviewInterval() != null ? item.getReviewInterval() : 0;
-        int reps = item.getRepetitions() != null ? item.getRepetitions() : 0;
-
-        if (quality >= 3) {
-            // 答对了：间隔递增
-            if (reps == 0) {
-                interval = 1;
-            } else if (reps == 1) {
-                interval = 6;
-            } else {
-                interval = (int) Math.round(interval * ef);
-            }
-            reps++;
-        } else {
-            // 答错了：重置
-            interval = 1;
-            reps = 0;
-        }
-
-        // 更新 EF
-        ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-        if (ef < 1.3) ef = 1.3;
-
-        item.setEasinessFactor(ef);
-        item.setReviewInterval(interval);
-        item.setRepetitions(reps);
-        item.setNextReviewAt(java.time.LocalDateTime.now().plusDays(interval));
-        item.setLastErrorAt(java.time.LocalDateTime.now());
-        if (quality < 3) {
-            item.setErrorCount((item.getErrorCount() != null ? item.getErrorCount() : 0) + 1);
-        }
-
+        var schedule = repetitionScheduler.apply(item, quality, java.time.LocalDateTime.now());
         errorBookMapper.updateById(item);
-        return interval;
+        return schedule.intervalDays();
     }
 
     /**

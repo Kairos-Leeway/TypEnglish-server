@@ -52,10 +52,11 @@ public class DatabaseBackedChatMemory implements ChatMemory {
         log.debug("已清除会话 {} 的记忆", conversationId);
     }
 
-    public void delete(String conversationId) {
-        conversationService.deleteConversation(Long.parseLong(conversationId));
-        clear(conversationId);
-        log.info("已彻底删除会话 {} 的所有历史记录", conversationId);
+    public void delete(String conversationKey) {
+        ConversationKey key = parseKey(conversationKey);
+        conversationService.deleteConversation(key.conversationId(), key.userId());
+        clear(conversationKey);
+        log.info("已彻底删除会话 {} 的所有历史记录", conversationKey);
     }
 
     private void ensureLoaded(String conversationId) {
@@ -63,7 +64,8 @@ public class DatabaseBackedChatMemory implements ChatMemory {
             return;
         }
 
-        List<AiConversationMessage> history = conversationService.getMessages(Long.parseLong(conversationId));
+        ConversationKey key = parseKey(conversationId);
+        List<AiConversationMessage> history = conversationService.getMessages(key.conversationId(), key.userId());
         if (history == null || history.isEmpty()) {
             loadedConversations.add(conversationId);
             return;
@@ -87,6 +89,18 @@ public class DatabaseBackedChatMemory implements ChatMemory {
 
         log.debug("已从 DB 加载会话 {} 的 {} 条消息到记忆窗口", conversationId, messages.size());
     }
+
+    public static String key(Long userId, Long conversationId) {
+        return userId + ":" + conversationId;
+    }
+
+    private ConversationKey parseKey(String value) {
+        String[] parts = value.split(":", 2);
+        if (parts.length != 2) throw new IllegalArgumentException("非法的会话记忆键");
+        return new ConversationKey(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
+    }
+
+    private record ConversationKey(Long userId, Long conversationId) {}
 
     private Message toMessage(AiConversationMessage msg) {
         String content = msg.getContent();

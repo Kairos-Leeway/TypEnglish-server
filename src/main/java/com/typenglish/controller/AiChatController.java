@@ -45,13 +45,13 @@ public class AiChatController {
     /** 获取对话历史消息 */
     @GetMapping("/conversation/{id}/messages")
     public Result<List<AiConversationMessage>> getMessages(@PathVariable Long id) {
-        return Result.ok(conversationService.getMessages(id));
+        return Result.ok(conversationService.getMessages(id, currentUserId()));
     }
 
     /** 删除对话 */
     @DeleteMapping("/conversation/{id}")
     public Result<Void> deleteConversation(@PathVariable Long id) {
-        conversationService.deleteConversation(id);
+        conversationService.deleteConversation(id, currentUserId());
         return Result.ok();
     }
 
@@ -60,7 +60,7 @@ public class AiChatController {
     public Result<Void> updateTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String title = body.get("title");
         if (title != null && !title.isBlank()) {
-            conversationService.updateTitle(id, title);
+            conversationService.updateTitle(id, currentUserId(), title);
         }
         return Result.ok();
     }
@@ -71,7 +71,7 @@ public class AiChatController {
     public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
         String message = body.getOrDefault("message", "");
         if (message.isBlank()) return Result.ok(Map.of("reply", "请告诉我你想聊什么?"));
-        return Result.ok(Map.of("reply", aiChatService.chat(message)));
+        return Result.ok(Map.of("reply", aiChatService.chat(currentUserId(), message)));
     }
 
     // ──────────── 流式 SSE 对话（带对话持久化） ────────────

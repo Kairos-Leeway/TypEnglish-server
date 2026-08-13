@@ -1,10 +1,8 @@
 package com.typenglish.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.typenglish.common.BusinessException;
 import com.typenglish.entity.*;
 import com.typenglish.mapper.*;
-import com.typenglish.security.JwtInterceptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,12 +24,6 @@ import java.util.stream.Collectors;
 public class AiToolService {
 
     private static final Logger log = LoggerFactory.getLogger(AiToolService.class);
-
-    /**
-     * 全局 userId，由 AiChatService.stream() 在线程切换前设置。
-     * 单用户场景下同一时刻只有一个流式对话在执行，static 即可。
-     */
-    static volatile Long currentStreamUserId;
 
     private final ErrorBookMapper errorBookMapper;
     private final PracticeRecordMapper practiceRecordMapper;
@@ -56,37 +48,26 @@ public class AiToolService {
         this.aiGenerateExecutor = aiGenerateExecutor;
     }
 
-    private Long currentUserId() {
-        // 优先取流式对话的 userId（跨线程无限制）
-        if (currentStreamUserId != null) return currentStreamUserId;
-        // fallback: JWT 拦截器的 ThreadLocal（Controller 直接调用）
-        Long uid = JwtInterceptor.CURRENT_USER.get();
-        if (uid == null) throw new BusinessException(401, "未登录");
-        return uid;
-    }
-
-    // ──────────── 以下是 @Tool 方法 ────────────
-
-    @Tool(description = "查询用户错题本")
-    public List<Map<String, Object>> getMyErrorBook(@ToolParam(description = "语言代码") String language) {
-        Long uid = currentUserId();
+    public List<Map<String, Object>> getMyErrorBook(Long uid, String language) {
+        String normalizedLanguage = LanguageCodeNormalizer.normalize(language);
         List<ErrorBook> errors = errorBookMapper.selectList(
                 new LambdaQueryWrapper<ErrorBook>().eq(ErrorBook::getUserId, uid)
                         .eq(ErrorBook::getMastered, false).orderByDesc(ErrorBook::getErrorCount));
         return errors.stream().map(e -> {
             WordBank w = wordBankMapper.selectById(e.getWordId());
+            if (w == null || !normalizedLanguage.equals(w.getLanguage())) {
+                return null;
+            }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("errorId", e.getId());
             m.put("word", w != null ? w.getWord() : "未知");
             m.put("translation", w != null ? w.getTranslation() : "");
             m.put("errorCount", e.getErrorCount());
             return m;
-        }).collect(Collectors.toList());
+        }).filter(Objects::nonNull).collect(Collectors.toList());
     }
 
-    @Tool(description = "查询句子错题本（完形填空和翻译的错句）")
-    public List<Map<String, Object>> getMySentenceErrors(@ToolParam(description = "语言代码") String language) {
-        Long uid = currentUserId();
+    public List<Map<String, Object>> getMySentenceErrors(Long uid, String language) {
         List<SentenceError> errors = sentenceErrorMapper.selectList(
                 new LambdaQueryWrapper<SentenceError>().eq(SentenceError::getUserId, uid)
                         .eq(SentenceError::getMastered, false).orderByDesc(SentenceError::getCreatedAt));
@@ -102,9 +83,7 @@ public class AiToolService {
         }).collect(Collectors.toList());
     }
 
-    @Tool(description = "查询练习统计")
-    public Map<String, Object> getMyPracticeStats() {
-        Long uid = currentUserId();
+    public Map<String, Object> getMyPracticeStats(Long uid) {
         Map<String, Object> stats = practiceRecordMapper.stats(uid);
         List<Map<String, Object>> byMode = practiceRecordMapper.countByMode(uid);
         long total = ((Number) stats.getOrDefault("total", 0)).longValue();
@@ -116,9 +95,9 @@ public class AiToolService {
         return r;
     }
 
-    @Tool(description = "查询单词详情")
     public Map<String, Object> getWordDetail(@ToolParam(description = "单词") String word,
                                               @ToolParam(description = "语言") String language) {
+        language = LanguageCodeNormalizer.normalize(language);
         WordBank wb = wordBankMapper.selectOne(new LambdaQueryWrapper<WordBank>()
                 .eq(WordBank::getWord, word).eq(WordBank::getLanguage, language != null ? language : "en"));
         if (wb == null) return Map.of("found", false);
@@ -129,10 +108,8 @@ public class AiToolService {
         return m;
     }
 
-    @Tool(description = "查看近期练习")
-    public List<Map<String, Object>> getMyRecentPractices(@ToolParam(description = "数量") Integer limit) {
-        Long uid = currentUserId();
-        int n = limit != null ? limit : 10;
+    public List<Map<String, Object>> getMyRecentPractices(Long uid, Integer limit) {
+        int n = Math.max(1, Math.min(limit != null ? limit : 10, 50));
         return practiceRecordMapper.selectList(new LambdaQueryWrapper<PracticeRecord>()
                 .eq(PracticeRecord::getUserId, uid).orderByDesc(PracticeRecord::getCreatedAt).last("LIMIT " + n))
                 .stream().map(r -> {
@@ -144,9 +121,8 @@ public class AiToolService {
                 }).collect(Collectors.toList());
     }
 
-    @Tool(description = "分析薄弱环节")
-    public Map<String, Object> analyzeMyWeakPoints(@ToolParam(description = "语言") String language) {
-        Long uid = currentUserId();
+    public Map<String, Object> analyzeMyWeakPoints(Long uid, String language) {
+        language = LanguageCodeNormalizer.normalize(language);
         List<ErrorBook> errors = errorBookMapper.selectList(new LambdaQueryWrapper<ErrorBook>()
                 .eq(ErrorBook::getUserId, uid).eq(ErrorBook::getMastered, false).orderByDesc(ErrorBook::getErrorCount));
         List<Map<String, Object>> weak = new ArrayList<>();

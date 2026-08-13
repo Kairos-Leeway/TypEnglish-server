@@ -39,7 +39,7 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
             "SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as correct " +
             "FROM practice_record WHERE user_id = #{userId} GROUP BY DATE(created_at) " +
             "UNION ALL " +
-            "SELECT DATE(created_at) as date, COUNT(*) as count, " +
+            "SELECT DATE(created_at) as date, SUM(total_slots) as count, " +
             "SUM(correct_slots) as correct " +
             "FROM sentence_error WHERE user_id = #{userId} GROUP BY DATE(created_at)" +
             ") t GROUP BY date ORDER BY date DESC LIMIT #{days}")
