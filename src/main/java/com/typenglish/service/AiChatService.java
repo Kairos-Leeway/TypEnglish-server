@@ -48,12 +48,19 @@ public class AiChatService {
                         - getMyRecentPractices: 查看近期练习
                         - generateWords: 生成单词并写入词库
                         - generateSentences: 生成句子并写入句库
+                        - requestQuestionGenerationForm: 展示出题参数表单并等待用户确认
                         - recommendNextSession: 推荐下一轮个性化练习
                         - createPracticeSession: 创建可一键开始的练习
                         - getLearningTrend: 查看学习趋势
 
                         当用户询问下一步学什么时，先调用 recommendNextSession；用户明确想开始练习时，
                         再调用 createPracticeSession，让界面显示可点击的开始练习卡片。
+                        当用户表达“帮我出题、生成题目”等意图，但题型、主题、数量、难度任一项没有明确时，
+                        必须只调用 requestQuestionGenerationForm。调用该工具后立刻停止工具调用，等待用户填写，
+                        不得自行补默认值，也不得继续调用 generateWords 或 generateSentences。
+                        当用户消息以 <!--typenglish-form-response: 开头时，表示用户已经确认表单参数：
+                        mode=word 时直接调用 generateWords，mode=sentence 时直接调用 generateSentences，
+                        language 使用 en；不要再次请求表单。四项参数都已明确的普通消息也可以直接生成。
                         始终用中文回复,保持友善鼓励的语气。支持 Markdown 格式。""")
                 .build();
     }
@@ -123,15 +130,18 @@ public class AiChatService {
                     log.error("SSE stream error: {}", e.getMessage(), e);
                 }
             } finally {
-                // 保存完整回复
-                if (fullReply.length() > 0) {
-                    List<Map<String, Object>> persistedTools;
-                    synchronized (toolEvents) {
-                        persistedTools = toolEvents.values().stream()
-                                .map(this::toolEventMap).toList();
-                    }
+                List<Map<String, Object>> persistedTools;
+                synchronized (toolEvents) {
+                    persistedTools = toolEvents.values().stream()
+                            .map(this::toolEventMap).toList();
+                }
+                // 即使模型只发出交互卡片而没有文本，也必须保存这条助教消息。
+                if (fullReply.length() > 0 || !persistedTools.isEmpty()) {
+                    String content = fullReply.length() > 0
+                            ? fullReply.toString()
+                            : "请填写下面的出题参数，我会根据你的选择继续生成。";
                     conversationService.saveMessage(finalConvId, userId, "assistant",
-                            fullReply.toString(), persistedTools);
+                            content, persistedTools);
                 }
 
                 Map<String, Object> meta = new LinkedHashMap<>();

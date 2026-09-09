@@ -3,6 +3,7 @@ package com.typenglish.service;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -82,16 +83,91 @@ public class AiUserTools {
                 () -> coach.getLearningTrend(userId, days));
     }
 
-    @Tool(description = "生成单词并写入词库")
-    public Map<String, Object> generateWords(String topic, Integer count, Integer difficulty, String language) {
-        return execute("generateWords", "正在生成单词", "单词生成完成",
-                () -> tools.doGenerateWords(topic, count, difficulty, language));
+    @Tool(description = "当用户想让 AI 出题但尚未明确题型、主题、数量或难度时，展示出题参数表单。调用后必须等待用户提交表单，不能继续生成题目")
+    public Map<String, Object> requestQuestionGenerationForm() {
+        return execute("requestQuestionGenerationForm", "正在准备出题设置", "请设置出题参数",
+                this::questionGenerationForm);
     }
 
-    @Tool(description = "生成句子并写入句库")
+    @Tool(description = "仅当用户已经明确题型、主题、数量和难度，或刚刚提交出题表单时，生成单词并写入词库")
+    public Map<String, Object> generateWords(String topic, Integer count, Integer difficulty, String language) {
+        return execute("generateWords", "正在生成单词", "单词生成完成",
+                () -> tools.doGenerateWords(safeTopic(topic), safeCount(count),
+                        safeDifficulty(difficulty), safeLanguage(language)));
+    }
+
+    @Tool(description = "仅当用户已经明确题型、主题、数量和难度，或刚刚提交出题表单时，生成句子并写入句库")
     public Map<String, Object> generateSentences(String topic, Integer count, Integer difficulty, String language) {
         return execute("generateSentences", "正在生成句子", "句子生成完成",
-                () -> tools.doGenerateSentences(topic, count, difficulty, language));
+                () -> tools.doGenerateSentences(safeTopic(topic), safeCount(count),
+                        safeDifficulty(difficulty), safeLanguage(language)));
+    }
+
+    private Map<String, Object> questionGenerationForm() {
+        Map<String, Object> action = new LinkedHashMap<>();
+        action.put("type", "input_form");
+        action.put("formId", "question_generation");
+        action.put("label", "确定并生成");
+        action.put("fields", List.of(
+                Map.of(
+                        "name", "mode",
+                        "type", "select",
+                        "label", "题目类型",
+                        "required", true,
+                        "defaultValue", "word",
+                        "options", List.of(
+                                Map.of("label", "单词", "value", "word"),
+                                Map.of("label", "句子", "value", "sentence"))),
+                Map.of(
+                        "name", "topic",
+                        "type", "text",
+                        "label", "相关主题",
+                        "required", true,
+                        "defaultValue", "日常",
+                        "placeholder", "例如：旅行、商务、科技",
+                        "maxLength", 60),
+                Map.of(
+                        "name", "count",
+                        "type", "number",
+                        "label", "出题数量",
+                        "required", true,
+                        "defaultValue", 10,
+                        "min", 5,
+                        "max", 50,
+                        "step", 5),
+                Map.of(
+                        "name", "difficulty",
+                        "type", "rating",
+                        "label", "难度",
+                        "required", true,
+                        "defaultValue", 2,
+                        "min", 1,
+                        "max", 5)));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("awaitingUserInput", true);
+        result.put("summary", "填写题型、主题、数量和难度后，我会继续出题");
+        result.put("action", action);
+        return result;
+    }
+
+    private String safeTopic(String topic) {
+        String normalized = topic == null ? "" : topic.trim();
+        if (normalized.isEmpty()) return "日常";
+        return normalized.substring(0, Math.min(normalized.length(), 60));
+    }
+
+    private int safeCount(Integer count) {
+        return Math.max(5, Math.min(count != null ? count : 10, 50));
+    }
+
+    private int safeDifficulty(Integer difficulty) {
+        return Math.max(1, Math.min(difficulty != null ? difficulty : 2, 5));
+    }
+
+    private String safeLanguage(String language) {
+        return List.of("en", "ja", "de").contains(language) ? language : "en";
     }
 
     private <T> T execute(String name, String title, String doneTitle, Supplier<T> supplier) {
